@@ -1,0 +1,7 @@
+[package]
+name = "silent_killer"
+version = "0.1.0"
+authors = ["Brenton Alker <brenton@tekerson.com>"]
+
+[dependencies]
+  hound = "*"
