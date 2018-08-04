@@ -12,7 +12,7 @@ enum Heads {
 
 fn main() {
     let args: Vec<String> = env::args().collect();
-    run2(&args[1]).expect("Something broke");
+    run(&args[1]).expect("Something broke");
 }
 
 #[allow(dead_code)]
@@ -22,47 +22,40 @@ fn run(file: &str) -> Result<(), Error> {
     let quiet_threshold = 44100;
 
     let mut reader = hound::WavReader::open(file)?;
-    let mut scanner = hound::WavReader::open(file)?;
+    let mut reader2 = hound::WavReader::open(file)?;
     let mut writer = hound::WavWriter::create("copy.wav", reader.spec())?;
 
-    let mut rs = reader.samples::<i16>().map(|s| s.unwrap());
-    let mut ss = scanner.samples::<i16>().map(|s| s.unwrap());
-    let mut state = Heads::Searching(rs.len());
-    loop {
-        match ss.next() {
-            None => {
-                return Ok(());
-            }
-            Some(sample) => {
-                let magnitude = sample.abs();
+    let ss = reader
+        .samples::<i16>()
+        .map(|s| s.expect("Error reading audio"));
+    let mut state = Heads::Searching(0);
+    for (n, sample) in ss.enumerate() {
+        let magnitude = sample.abs();
 
-                match state {
-                    Heads::Copying => {
-                        let r = rs.next();
-                        if magnitude < lower_threshold {
-                            state = Heads::Searching(ss.len());
-                        } else {
-                            writer.write_sample(r.unwrap()).unwrap();
+        match state {
+            Heads::Copying => {
+                if magnitude < lower_threshold {
+                    state = Heads::Searching(n);
+                } else {
+                    writer.write_sample(sample).unwrap();
+                }
+            }
+            Heads::Searching(from) => {
+                if magnitude > upper_threshold {
+                    if n - from < quiet_threshold {
+                        reader2.seek(from as u32)?;
+                        let mut rs = reader2.samples::<i16>();
+                        for _ in from..=n {
+                            let r = rs.next().unwrap()?;
+                            writer.write_sample(r).unwrap();
                         }
                     }
-                    Heads::Searching(from) => {
-                        if magnitude > upper_threshold {
-                            if from - ss.len() > quiet_threshold {
-                                while rs.len() > ss.len() {
-                                    rs.next();
-                                }
-                            }
-                            while rs.len() > ss.len() {
-                                writer.write_sample(rs.next().unwrap()).unwrap();
-                            }
-                            assert!(rs.len() == ss.len());
-                            state = Heads::Copying;
-                        }
-                    }
+                    state = Heads::Copying;
                 }
             }
         }
     }
+    Ok(())
 }
 
 #[allow(dead_code)]
